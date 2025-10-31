@@ -1,0 +1,276 @@
+---
+title: "STATS 506 Problem Set 4"
+author: "Lingzhi Hao"
+format:
+  html: 
+    code-fold: true
+    embed-resources: true
+  pdf: default
+---
+
+## **GitHub Repository:** <https://github.com/Lingzhi-Hao/STATS-506-Problem-Set-04>
+
+**Problem 1 - Tidyverse: New Zealand**
+
+\(a\)
+
+```{r}
+library(nzelect)
+library(dplyr)
+library(tidyr)
+
+nzge %>% 
+  group_by(election_year, voting_type) %>%
+  summarise(vote_count = sum(votes, na.rm = TRUE)) %>%
+  arrange(desc(vote_count))
+```
+
+\(b\)
+
+```{r}
+nzge %>%
+  filter(election_year == 2014, voting_type == "Candidate") %>%
+  group_by(party) %>%
+  summarise(party_vote_count = sum(votes, na.rm = TRUE)) %>%
+  mutate(vote_percentage = party_vote_count/sum(party_vote_count, na.rm = TRUE)*100) %>%
+  arrange(desc(vote_percentage))
+```
+
+\(c\)
+
+```{r}
+nzge %>%
+  group_by(election_year, voting_type) %>%
+  slice_max(order_by = votes, n = 1, with_ties = FALSE) %>%
+  select(election_year, voting_type, party) %>%
+  pivot_wider(names_from = voting_type, values_from = party, names_prefix = "Winner_of_")
+```
+
+**Problem 2 - Tidyverse: Tennis**
+
+```{r}
+ATP_Matches = read.csv("https://raw.githubusercontent.com/JeffSackmann/tennis_atp/refs/heads/master/atp_matches_2019.csv")
+```
+
+\(a\) *128* tournaments are in the *atp_matches_2019* dataset.
+
+```{r}
+ATP_Matches %>%
+  summarise(n_distinct(tourney_id))
+```
+
+If strictly limiting the tournament date in year 2019, there were *125* tournaments taking place in 2019.
+
+```{r}
+ATP_Matches %>%
+  filter(tourney_date >= 20190101 & tourney_date <= 20191231) %>%
+  summarise(n_distinct(tourney_id))
+```
+
+In the following problems (b) (c) (d), all 128 tournaments in the dataset are considered.
+
+\(b\) *12* players won more than one tournaments. The most winning players Dominic Thiem and Novak Djokovic both won *5* tournaments.
+
+```{r}
+ATP_Matches %>%
+  filter(round == "F") %>%
+  select(tourney_id, winner_name) %>%
+  group_by(winner_name) %>%
+  count(winner_name, sort = TRUE) %>%
+  filter(n >= 2)
+
+```
+
+\(c\) There is evidence that winners have more aces than losers. To test this, a one-sample t-test is conducted on the difference of winner's aces and loser's aces for every match.
+
+Null hypothesis: The difference in aces between winners and losers is 0;
+
+Alternative hypothesis: The difference in aces between winners and losers is not 0.
+
+Since p-value = 3.060403e-34 \<\< 0.0001, t-statistic = 12.37302, estimate = 1.7049, the Null hypothesis is rejected. Winners significantly have more aces than losers. Winners have an average of 1.7049 more aces per match than losers.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(infer)
+
+ATP_Matches %>%
+  transmute(ace_diff = w_ace - l_ace) %>% 
+  drop_na() %>%
+  infer::t_test(
+    response = ace_diff, 
+    mu = 0, 
+    alternative = "two_sided"
+  )
+
+```
+
+\(d\) The player (at least 5 matches) with highest win-rate is *Rafael Nadal*.
+
+```{r}
+ATP_Matches %>%
+  select(winner_name, loser_name) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "outcome",
+    values_to = "player_name"
+  ) %>%
+  group_by(player_name) %>%
+  summarise(
+    total = n(),
+    wins = sum(outcome == "winner_name"),
+    .groups = "drop"
+    ) %>%
+  mutate(win_rate = wins/total) %>%
+  filter(total >= 5) %>%
+  slice_max(order_by = win_rate, with_ties = TRUE)
+
+```
+
+**Problem 3 - Visualization**
+
+```{r}
+covid <- read.csv("https://raw.githubusercontent.com/nytimes/covid-19-data/refs/heads/master/rolling-averages/us-states.csv")
+
+covid$date <- as.Date(covid$date)
+```
+
+\(a\) There were *1* major spike and *5* minor spikes.
+
+```{r}
+us <- aggregate(cases_avg ~ date, data = covid, FUN = sum)
+
+plot(us$date, us$cases_avg, type = "l", col = "blue", lwd = 2,
+     main = "US COVID-19: Major and Minor Spikes in New Cases",
+     xlab = "Date", ylab = "7-day Avg of New Cases")
+
+grid()
+
+```
+
+\(b\) The main differences in the trajectories over time of the highest-rate state (American Samoa) and lowest-rate state (Maryland) are the time span and intensity.
+
+The highest-rate state (American Samoa): It had a delayed and explosive trajectory, with very few but massive and sharp spikes.
+
+The lowest-rate state (Maryland): It had an immediate and very long-term trajectory (from the start of US COVID to the end), with numerous but much lower waves.
+
+```{r}
+mean_rate <- tapply(covid$cases_avg_per_100k, covid$state, mean, na.rm = TRUE)
+high_state <- names(which.max(mean_rate))
+low_state  <- names(which.min(mean_rate))
+
+min_date <- min(covid$date, na.rm = TRUE)
+max_date <- max(covid$date, na.rm = TRUE)
+
+sel <- covid$state %in% c(high_state, low_state)
+
+plot(covid$date[sel & covid$state == high_state],
+     covid$cases_avg_per_100k[sel & covid$state == high_state],
+     type = "l", col = "red", lwd = 2,
+     xlab = "Date", ylab = "7-day Avg Cases per 100k",
+     main = paste("Highest vs. Lowest Overall Rates:\n", high_state, "vs.", low_state),
+     xlim = c(min_date, max_date))
+
+lines(covid$date[sel & covid$state == low_state],
+      covid$cases_avg_per_100k[sel & covid$state == low_state],
+      col = "blue", lwd = 2)
+legend("topleft", legend = c(high_state, low_state),
+       col = c("red", "blue"), lwd = 2)
+
+```
+
+\(c\) I set the threshold = 10, which means first five states reaching10 new cases per 100k population are the first five states to experience COVID in a substantial way. The first five states are New York, New Jersey, Massachusetts, Connecticut, and Louisiana.
+
+```{r}
+threshold <- 10
+first_date <- tapply(covid$date[covid$cases_avg_per_100k >= threshold],
+                     covid$state[covid$cases_avg_per_100k >= threshold],
+                     min)
+first_date <- sort(first_date)
+first5_states <- names(head(first_date, 5))
+first5_dates  <- as.Date(first_date[first5_states])
+
+
+start_date <- min(first5_dates) - 14   
+end_date   <- max(first5_dates) + 90   
+in_win <- covid$date >= start_date & covid$date <= end_date
+
+plot(NA,
+     xlim = c(start_date, end_date),
+     ylim = c(0, max(covid$cases_avg_per_100k[in_win], na.rm = TRUE)),
+     xlab = "Date", ylab = "7-day Average Cases per 100k",
+     main = "Earliest COVID-19 Outbreaks",
+     xaxt = "n")
+
+for (st in unique(covid$state)) {
+  idx <- in_win & covid$state == st
+  lines(covid$date[idx], covid$cases_avg_per_100k[idx],
+        col = rgb(0.8, 0.8, 0.8, 0.5))
+}
+
+cols <- c("red","orange","blue","green","purple")
+for (i in seq_along(first5_states)) {
+  st <- first5_states[i]
+  idx <- in_win & covid$state == st
+  lines(covid$date[idx], covid$cases_avg_per_100k[idx], col = cols[i], lwd = 2.8)
+
+  abline(v = first5_dates[i], col = cols[i], lty = 3)
+}
+axis.Date(1, at = seq(start_date, end_date, by = "2 weeks"), format = "%Y-%m-%d")
+legend("topleft", legend = first5_states, col = cols, lwd = 2.8, bty = "n")
+grid()
+
+```
+
+```{r}
+threshold <- 10
+first_date <- tapply(covid$date[covid$cases_avg_per_100k >= threshold],
+                     covid$state[covid$cases_avg_per_100k >= threshold],
+                     min)
+first_date <- sort(first_date)
+first5_states <- names(head(first_date, 5))
+first5_dates  <- as.Date(first_date[first5_states])
+
+
+start_date <- min(first5_dates) - 14   
+end_date   <- max(first5_dates) + 90   
+in_win <- covid$date >= start_date & covid$date <= end_date
+other <- covid[in_win & !(covid$state %in% first5_states),
+               c("date","cases_avg_per_100k")]
+
+med_by_day <- aggregate(cases_avg_per_100k ~ date, data = other, median, na.rm = TRUE)
+q1_by_day  <- aggregate(cases_avg_per_100k ~ date, data = other,
+                        function(x) quantile(x, 0.25, na.rm = TRUE))
+q3_by_day  <- aggregate(cases_avg_per_100k ~ date, data = other,
+                        function(x) quantile(x, 0.75, na.rm = TRUE))
+
+plot(NA,
+     xlim = c(start_date, end_date),
+     ylim = c(0, max(covid$cases_avg_per_100k[in_win], na.rm = TRUE)),
+     xlab = "Date", ylab = "7-day Average Cases per 100k",
+     main = "Earliest Outbreaks vs. Other States",
+     xaxt = "n")
+
+polygon(c(q1_by_day$date, rev(q3_by_day$date)),
+        c(q1_by_day$cases_avg_per_100k, rev(q3_by_day$cases_avg_per_100k)),
+        col = rgb(0.7, 0.7, 0.7, 0.3), border = NA)
+lines(med_by_day$date, med_by_day$cases_avg_per_100k, col = "gray40", lwd = 2, lty = 2)
+
+cols <- c("red","orange","blue","green","purple")
+for (i in seq_along(first5_states)) {
+  st <- first5_states[i]
+  idx <- in_win & covid$state == st
+  lines(covid$date[idx], covid$cases_avg_per_100k[idx], col = cols[i], lwd = 2.8)
+  abline(v = first5_dates[i], col = cols[i], lty = 3)
+}
+
+axis.Date(1, at = seq(start_date, end_date, by = "2 weeks"), format = "%Y-%m-%d")
+legend("topleft",
+       legend = c("Other states IQR", "Other states median", first5_states),
+       col    = c(rgb(0.7,0.7,0.7,0.3), "gray40", cols),
+       lwd    = c(10, 2, rep(2.8, length(first5_states))),
+       lty    = c(1, 2, rep(1, length(first5_states))),
+       bty = "n")
+grid()
+
+```
